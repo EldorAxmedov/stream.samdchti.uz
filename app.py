@@ -260,15 +260,24 @@ def get_all_buildings():
 
     result = {}
     for full_room_name, camera_list in rooms.items():
-        result[full_room_name] = []
+        try:
+            building, room = full_room_name.split("/", 1)
+        except ValueError:
+            continue  # Skip invalid entries
+
+        if building not in result:
+            result[building] = {}
+        result[building][room] = []
+
         for cam_name in camera_list:
             cam_url = paths.get(cam_name, {}).get('source', '')
-            result[full_room_name].append({
+            result[building][room].append({
                 'name': cam_name,
                 'url': cam_url
             })
 
     return jsonify(result)
+
 
 @app.route('/api/building/<building_name>', methods=['GET'])
 @token_required
@@ -280,18 +289,20 @@ def get_building_rooms(building_name):
     result = {}
     for full_room, cams in rooms.items():
         if full_room.startswith(f"{building_name}/"):
-            result[full_room] = []
+            # Extract room name only (after slash)
+            room_name = full_room.split("/", 1)[1]
+            result[room_name] = []
             for cam in cams:
-                cam_data = {
+                result[room_name].append({
                     'name': cam,
                     'url': paths.get(cam, {}).get('source', '')
-                }
-                result[full_room].append(cam_data)
+                })
 
     if not result:
         return jsonify({'error': 'Building not found'}), 404
 
-    return jsonify(result)
+    return jsonify({'rooms': result})
+
 
 @app.route('/api/building/<building_name>/<room_name>', methods=['GET'])
 @token_required
@@ -317,6 +328,40 @@ def get_specific_room_in_building(building_name, room_name):
     }
 
     return jsonify(result)
+
+
+@app.route('/api/embed/<name>', methods=['GET'])
+@token_required
+def embed_single_iframe(name):
+    tokens = get_tokens()
+    for token, cam in tokens.items():
+        if cam == name:
+            current_token = token
+            break
+    else:
+        current_token = secrets.token_hex(8)
+        tokens[current_token] = name
+        save_tokens(tokens)
+
+    iframe_code = f'<iframe src="https://mediamtx.samdchti.uz/embed_single?token={current_token}" width="800" height="450" style="border:none;"></iframe>'
+    return jsonify({
+        'camera': name,
+        'token': current_token,
+        'iframe_code': iframe_code
+    })
+
+@app.route('/api/generate-token/<name>', methods=['GET'])
+@token_required
+def generate_token(name):
+    tokens = get_tokens()
+    for token, cam in tokens.items():
+        if cam == name:
+            return jsonify({'camera': name, 'token': token})
+
+    new_token = secrets.token_hex(8)
+    tokens[new_token] = name
+    save_tokens(tokens)
+    return jsonify({'camera': name, 'token': new_token})
 
 if __name__ == '__main__':
     app.run(debug=True)
